@@ -1,5 +1,5 @@
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use serde::{Serialize, Deserialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct SequenceIndex {
@@ -49,7 +49,7 @@ impl SequenceIndex {
     pub fn is_empty(&self) -> bool {
         self.name_to_id.is_empty()
     }
-    
+
     pub fn len(&self) -> usize {
         self.name_to_id.len()
     }

@@ -1,44 +1,44 @@
 use clap::Parser;
+use coitrees::IntervalTree;
+use impg::impg::{check_intervals, AdjustedInterval, Impg, SerializableImpg};
+use impg::paf;
+use noodles::bgzf;
+use rayon::ThreadPoolBuilder;
 use std::fs::File;
+use std::io::BufRead;
 use std::io::{self, BufReader, BufWriter};
 use std::num::NonZeroUsize;
-use noodles::bgzf;
-use impg::impg::{Impg, SerializableImpg, AdjustedInterval, check_intervals};
-use coitrees::IntervalTree;
-use impg::paf;
-use rayon::ThreadPoolBuilder;
-use std::io::BufRead;
 
 /// Command-line tool for querying overlaps in PAF files.
 #[derive(Parser, Debug)]
 #[clap(author, version, about)]
 struct Args {
     /// Path to the PAF file. If specified without an index, the tool will look for or generate an associated index file.
-    #[clap(short='p', long, value_parser)]
+    #[clap(short = 'p', long, value_parser)]
     paf_file: Option<String>,
 
     /// Force the regeneration of the index, even if it already exists.
-    #[clap(short='I', long, action)]
+    #[clap(short = 'I', long, action)]
     force_reindex: bool,
 
     /// Target range in the format `seq_name:start-end`.
-    #[clap(short='r', long, value_parser)]
+    #[clap(short = 'r', long, value_parser)]
     target_range: Option<String>,
 
     /// Path to the BED file containing target regions.
-    #[clap(short='b', long, value_parser)]
+    #[clap(short = 'b', long, value_parser)]
     target_bed: Option<String>,
 
     /// Enable transitive overlap requests.
-    #[clap(short='x', long, action)]
+    #[clap(short = 'x', long, action)]
     transitive: bool,
 
     /// Output results in PAF format.
-    #[clap(short='P', long, action)]
+    #[clap(short = 'P', long, action)]
     output_paf: bool,
-        
+
     /// Print stats about the index.
-    #[clap(short='s', long, action)]
+    #[clap(short = 's', long, action)]
     stats: bool,
 
     /// Number of threads for parallel processing.
@@ -46,7 +46,7 @@ struct Args {
     num_threads: NonZeroUsize,
 
     /// Check the projected intervals, reporting the wrong ones (slow, useful for debugging).
-    #[clap(short='c', long, action)]
+    #[clap(short = 'c', long, action)]
     check_intervals: bool,
 }
 
@@ -54,12 +54,28 @@ fn main() -> io::Result<()> {
     let args = Args::parse();
 
     // Configure the global thread pool to use the specified number of threads
-    ThreadPoolBuilder::new().num_threads(args.num_threads.into()).build_global().unwrap();
+    ThreadPoolBuilder::new()
+        .num_threads(args.num_threads.into())
+        .build_global()
+        .unwrap();
 
     let impg = match args {
-        Args { paf_file: Some(paf), force_reindex: false, .. } => load_or_generate_index(&paf, args.num_threads)?,
-        Args { paf_file: Some(paf), force_reindex: true, .. } => generate_index(&paf, args.num_threads)?,
-        _ => return Err(io::Error::new(io::ErrorKind::InvalidInput, "A PAF file must be provided")),
+        Args {
+            paf_file: Some(paf),
+            force_reindex: false,
+            ..
+        } => load_or_generate_index(&paf, args.num_threads)?,
+        Args {
+            paf_file: Some(paf),
+            force_reindex: true,
+            ..
+        } => generate_index(&paf, args.num_threads)?,
+        _ => {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "A PAF file must be provided",
+            ))
+        }
     };
 
     if args.stats {
@@ -115,7 +131,10 @@ fn parse_bed_file(bed_file: &str) -> io::Result<Vec<(String, (i32, i32), Option<
         let line = line?;
         let parts: Vec<&str> = line.split('\t').collect();
         if parts.len() < 3 {
-            return Err(io::Error::new(io::ErrorKind::InvalidInput, "Invalid BED file format"));
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "Invalid BED file format",
+            ));
         }
 
         let (start, end) = parse_range(&parts[1..=2])?;
@@ -129,7 +148,10 @@ fn parse_bed_file(bed_file: &str) -> io::Result<Vec<(String, (i32, i32), Option<
 fn parse_target_range(target_range: &str) -> io::Result<(String, (i32, i32))> {
     let parts: Vec<&str> = target_range.rsplitn(2, ':').collect();
     if parts.len() != 2 {
-        return Err(io::Error::new(io::ErrorKind::InvalidInput, "Target range format should be `seq_name:start-end`"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Target range format should be `seq_name:start-end`",
+        ));
     }
 
     let (start, end) = parse_range(&parts[0].split('-').collect::<Vec<_>>())?;
@@ -138,14 +160,24 @@ fn parse_target_range(target_range: &str) -> io::Result<(String, (i32, i32))> {
 
 fn parse_range(range_parts: &[&str]) -> io::Result<(i32, i32)> {
     if range_parts.len() != 2 {
-        return Err(io::Error::new(io::ErrorKind::InvalidInput, "Range format should be `start-end`"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Range format should be `start-end`",
+        ));
     }
 
-    let start = range_parts[0].parse::<i32>().map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid start value"))?;
-    let end = range_parts[1].parse::<i32>().map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid end value"))?;
+    let start = range_parts[0]
+        .parse::<i32>()
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid start value"))?;
+    let end = range_parts[1]
+        .parse::<i32>()
+        .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "Invalid end value"))?;
 
     if start >= end {
-        return Err(io::Error::new(io::ErrorKind::InvalidInput, "Start value must be less than end value"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidInput,
+            "Start value must be less than end value",
+        ));
     }
 
     Ok((start, end))
@@ -163,31 +195,50 @@ fn load_or_generate_index(paf_file: &str, num_threads: NonZeroUsize) -> io::Resu
 fn generate_index(paf_file: &str, num_threads: NonZeroUsize) -> io::Result<Impg> {
     let file = File::open(paf_file)?;
     let reader: Box<dyn io::Read> = if [".gz", ".bgz"].iter().any(|e| paf_file.ends_with(e)) {
-        Box::new(bgzf::MultithreadedReader::with_worker_count(num_threads, file))
+        Box::new(bgzf::MultithreadedReader::with_worker_count(
+            num_threads,
+            file,
+        ))
     } else {
         Box::new(file)
     };
     let reader = BufReader::new(reader);
-    let records = paf::parse_paf(reader).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Failed to parse PAF records: {:?}", e)))?;
-    let impg = Impg::from_paf_records(&records, paf_file).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Failed to create index: {:?}", e)))?;
+    let records = paf::parse_paf(reader).map_err(|e| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("Failed to parse PAF records: {:?}", e),
+        )
+    })?;
+    let impg = Impg::from_paf_records(&records, paf_file).map_err(|e| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("Failed to create index: {:?}", e),
+        )
+    })?;
 
     let index_file = format!("{}.impg", paf_file);
     let serializable = impg.to_serializable();
     let file = File::create(index_file)?;
     let writer = BufWriter::new(file);
-    bincode::serialize_into(writer, &serializable).map_err(|e| io::Error::new(io::ErrorKind::Other, format!("Failed to serialize index: {:?}", e)))?;
+    bincode::serialize_into(writer, &serializable).map_err(|e| {
+        io::Error::new(
+            io::ErrorKind::Other,
+            format!("Failed to serialize index: {:?}", e),
+        )
+    })?;
 
     Ok(impg)
 }
 
 fn load_index(paf_file: &str) -> io::Result<Impg> {
     let index_file = format!("{}.impg", paf_file);
-    
+
     let paf_file_metadata = std::fs::metadata(paf_file)?;
     let index_file_metadata = std::fs::metadata(index_file.clone())?;
-    if let (Ok(paf_file_ts), Ok(index_file_ts)) = (paf_file_metadata.modified(), index_file_metadata.modified()) {
-        if paf_file_ts > index_file_ts
-        {
+    if let (Ok(paf_file_ts), Ok(index_file_ts)) =
+        (paf_file_metadata.modified(), index_file_metadata.modified())
+    {
+        if paf_file_ts > index_file_ts {
             eprintln!("WARNING:\tPAF file has been modified since impg index creation.");
         }
     } else {
@@ -196,16 +247,35 @@ fn load_index(paf_file: &str) -> io::Result<Impg> {
 
     let file = File::open(index_file)?;
     let reader = BufReader::new(file);
-    let serializable: SerializableImpg = bincode::deserialize_from(reader).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, format!("Failed to deserialize index: {:?}", e)))?;
+    let serializable: SerializableImpg = bincode::deserialize_from(reader).map_err(|e| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("Failed to deserialize index: {:?}", e),
+        )
+    })?;
     Ok(Impg::from_paf_and_serializable(paf_file, serializable))
 }
 
-fn perform_query(impg: &Impg, target_name: &str, target_range: (i32, i32), transitive: bool) -> Vec<AdjustedInterval> {
+fn perform_query(
+    impg: &Impg,
+    target_name: &str,
+    target_range: (i32, i32),
+    transitive: bool,
+) -> Vec<AdjustedInterval> {
     let (target_start, target_end) = target_range;
-    let target_id = impg.seq_index.get_id(target_name).expect("Target name not found in index");
-    let target_length = impg.seq_index.get_len_from_id(target_id).expect("Target length not found in index");
+    let target_id = impg
+        .seq_index
+        .get_id(target_name)
+        .expect("Target name not found in index");
+    let target_length = impg
+        .seq_index
+        .get_len_from_id(target_id)
+        .expect("Target length not found in index");
     if target_end > target_length as i32 {
-        panic!("Target range end ({}) exceeds the target sequence length ({})", target_end, target_length);
+        panic!(
+            "Target range end ({}) exceeds the target sequence length ({})",
+            target_end, target_length
+        );
     }
     if transitive {
         impg.query_transitive(target_id, target_start, target_end)
@@ -226,7 +296,12 @@ fn output_results_bed(impg: &Impg, results: Vec<AdjustedInterval>) {
     }
 }
 
-fn output_results_bedpe(impg: &Impg, results: Vec<AdjustedInterval>, target_name: &str, name: Option<String>) {
+fn output_results_bedpe(
+    impg: &Impg,
+    results: Vec<AdjustedInterval>,
+    target_name: &str,
+    name: Option<String>,
+) {
     for (overlap_query, _, overlap_target) in results {
         let overlap_name = impg.seq_index.get_name(overlap_query.metadata).unwrap();
         let (first, last, strand) = if overlap_query.first <= overlap_query.last {
@@ -234,15 +309,30 @@ fn output_results_bedpe(impg: &Impg, results: Vec<AdjustedInterval>, target_name
         } else {
             (overlap_query.last, overlap_query.first, '-')
         };
-        println!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t0\t{}\t+",
-                 overlap_name, first, last,
-                 target_name, overlap_target.first, overlap_target.last,
-                 name.as_deref().unwrap_or("."), strand);
+        println!(
+            "{}\t{}\t{}\t{}\t{}\t{}\t{}\t0\t{}\t+",
+            overlap_name,
+            first,
+            last,
+            target_name,
+            overlap_target.first,
+            overlap_target.last,
+            name.as_deref().unwrap_or("."),
+            strand
+        );
     }
 }
 
-fn output_results_paf(impg: &Impg, results: Vec<AdjustedInterval>, target_name: &str, name: Option<String>) { 
-    let target_length = impg.seq_index.get_len_from_id(impg.seq_index.get_id(target_name).unwrap()).unwrap();  
+fn output_results_paf(
+    impg: &Impg,
+    results: Vec<AdjustedInterval>,
+    target_name: &str,
+    name: Option<String>,
+) {
+    let target_length = impg
+        .seq_index
+        .get_len_from_id(impg.seq_index.get_id(target_name).unwrap())
+        .unwrap();
     for (overlap_query, cigar, overlap_target) in results {
         let overlap_name = impg.seq_index.get_name(overlap_query.metadata).unwrap();
         let (first, last, strand) = if overlap_query.first <= overlap_query.last {
@@ -251,7 +341,10 @@ fn output_results_paf(impg: &Impg, results: Vec<AdjustedInterval>, target_name: 
             (overlap_query.last, overlap_query.first, '-')
         };
 
-        let query_length = impg.seq_index.get_len_from_id(overlap_query.metadata).unwrap();  
+        let query_length = impg
+            .seq_index
+            .get_len_from_id(overlap_query.metadata)
+            .unwrap();
 
         let has_m_operation = cigar.iter().any(|op| op.op() == 'M');
         let (matches, block_len) = if has_m_operation {
@@ -274,22 +367,53 @@ fn output_results_paf(impg: &Impg, results: Vec<AdjustedInterval>, target_name: 
                 }
             })
         };
-        let cigar_str : String = cigar.iter().map(|op| format!("{}{}", op.len(), op.op())).collect();
+        let cigar_str: String = cigar
+            .iter()
+            .map(|op| format!("{}{}", op.len(), op.op()))
+            .collect();
 
         match name {
-            Some(ref name) => println!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\tcg:Z:{}\tan:Z:{}",
-                                    overlap_name, query_length, first, last, strand,
-                                    target_name, target_length, overlap_target.first, overlap_target.last,
-                                    matches, block_len, 255, cigar_str, name),
-            None => println!("{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\tcg:Z:{}",
-                                overlap_name, query_length, first, last, strand,
-                                target_name, target_length, overlap_target.first, overlap_target.last,
-                                matches, block_len, 255, cigar_str),
+            Some(ref name) => println!(
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\tcg:Z:{}\tan:Z:{}",
+                overlap_name,
+                query_length,
+                first,
+                last,
+                strand,
+                target_name,
+                target_length,
+                overlap_target.first,
+                overlap_target.last,
+                matches,
+                block_len,
+                255,
+                cigar_str,
+                name
+            ),
+            None => println!(
+                "{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\t{}\tcg:Z:{}",
+                overlap_name,
+                query_length,
+                first,
+                last,
+                strand,
+                target_name,
+                target_length,
+                overlap_target.first,
+                overlap_target.last,
+                matches,
+                block_len,
+                255,
+                cigar_str
+            ),
         }
     }
 }
 
 fn print_stats(impg: &Impg) {
     println!("Number of sequences: {}", impg.seq_index.len());
-    println!("Number of overlaps: {}", impg.trees.values().map(|tree| tree.len()).sum::<usize>());
+    println!(
+        "Number of overlaps: {}",
+        impg.trees.values().map(|tree| tree.len()).sum::<usize>()
+    );
 }
