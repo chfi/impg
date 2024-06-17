@@ -76,14 +76,14 @@ impl CigarOp {
 
 #[derive(Clone, Debug, Default, Serialize, Deserialize)]
 pub struct QueryMetadata {
-    query_id: u32,
-    target_start: i32,
-    target_end: i32,
-    query_start: i32,
-    query_end: i32,
-    strand: Strand,
-    cigar_offset: u64,
-    cigar_bytes: usize,
+    pub query_id: u32,
+    pub target_start: i32,
+    pub target_end: i32,
+    pub query_start: i32,
+    pub query_end: i32,
+    pub strand: Strand,
+    pub cigar_offset: u64,
+    pub cigar_bytes: usize,
 }
 
 impl QueryMetadata {
@@ -116,7 +116,7 @@ impl QueryMetadata {
 }
 
 pub type AdjustedInterval = (Interval<u32>, Vec<CigarOp>, Interval<u32>);
-type TreeMap = HashMap<u32, BasicCOITree<QueryMetadata, u32>>;
+pub type TreeMap = HashMap<u32, BasicCOITree<QueryMetadata, u32>>;
 pub type SerializableImpg = (HashMap<u32, Vec<SerializableInterval>>, SequenceIndex);
 
 #[derive(Clone, Serialize, Deserialize)]
