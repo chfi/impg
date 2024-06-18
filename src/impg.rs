@@ -11,9 +11,17 @@ use std::io::{Read, Seek, SeekFrom};
 
 /// Parse a CIGAR string into a vector of CigarOp
 // Note that the query_delta is negative for reverse strand alignments
-#[derive(Clone, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct CigarOp {
     pub val: u32,
+}
+
+impl std::fmt::Debug for CigarOp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let op = self.op();
+        let len = self.len();
+        write!(f, "CigarOp({op}{len})")
+    }
 }
 
 impl CigarOp {
