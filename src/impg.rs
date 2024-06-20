@@ -95,12 +95,13 @@ pub struct QueryMetadata {
 }
 
 impl QueryMetadata {
-    fn get_cigar_ops(
+    pub fn get_cigar_ops(
         &self,
-        paf_file: &String,
+        paf_file: impl AsRef<std::path::Path>,
         paf_gzi_index: Option<&bgzf::gzi::Index>,
     ) -> Vec<CigarOp> {
         // Allocate space for cigar
+        let paf_file = paf_file.as_ref();
         let mut cigar_buffer = vec![0; self.cigar_bytes];
 
         // Get reader and seek start of cigar str
