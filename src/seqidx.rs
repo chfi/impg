@@ -6,7 +6,6 @@ pub struct SequenceIndex {
     name_to_id: HashMap<String, u32>,
     id_to_name: HashMap<u32, String>,
     id_to_len: HashMap<u32, usize>,
-    next_id: u32,
 }
 
 impl SequenceIndex {
@@ -15,23 +14,35 @@ impl SequenceIndex {
             name_to_id: HashMap::new(),
             id_to_name: HashMap::new(),
             id_to_len: HashMap::new(),
-            next_id: 0,
         }
     }
 
     pub fn get_or_insert_id(&mut self, name: &str, length: Option<usize>) -> u32 {
-        let id = *self.name_to_id.entry(name.to_owned()).or_insert_with(|| {
-            let id = self.next_id;
+        let id = if let Some(id) = self.name_to_id.get(name) {
+            *id
+        } else {
+            let id = self.id_to_name.len() as u32;
             self.id_to_name.insert(id, name.to_owned());
-            self.next_id += 1;
+            self.name_to_id.insert(name.to_owned(), id);
             id
-        });
+        };
 
         if let Some(len) = length {
             self.id_to_len.entry(id).or_insert(len);
         }
 
         id
+    }
+
+    pub fn sequences(&self) -> impl Iterator<Item = (u32, &str, Option<usize>)> + '_ {
+        let ids = 0..self.id_to_name.len();
+
+        ids.filter_map(|id| {
+            let id = id as u32;
+            let name = self.id_to_name.get(&id)?;
+            let len = self.id_to_len.get(&id).copied();
+            Some((id, name.as_str(), len))
+        })
     }
 
     pub fn get_id(&self, name: &str) -> Option<u32> {

@@ -105,7 +105,10 @@ impl QueryMetadata {
         let mut cigar_buffer = vec![0; self.cigar_bytes];
 
         // Get reader and seek start of cigar str
-        if [".gz", ".bgz"].iter().any(|e| paf_file.ends_with(e)) {
+        if ["gz", "bgz"]
+            .iter()
+            .any(|e| paf_file.extension() == Some(e.as_ref()))
+        {
             let mut reader = bgzf::Reader::new(File::open(paf_file).unwrap());
             reader
                 .seek_by_uncompressed_position(&paf_gzi_index.unwrap(), self.cigar_offset)
