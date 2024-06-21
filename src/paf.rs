@@ -17,7 +17,7 @@ pub struct PafRecord {
     pub cigar_bytes: usize,
 }
 
-#[derive(Default, Debug, PartialEq, Clone, Copy, Serialize, Deserialize)]
+#[derive(Default, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum Strand {
     #[default]
     Forward,

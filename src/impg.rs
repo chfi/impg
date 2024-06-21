@@ -82,7 +82,7 @@ impl CigarOp {
     }
 }
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq, Eq)]
 pub struct QueryMetadata {
     pub query_id: u32,
     pub target_start: i32,
