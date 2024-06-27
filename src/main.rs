@@ -253,7 +253,7 @@ fn load_index(paf_file: &str) -> io::Result<Impg> {
             format!("Failed to deserialize index: {:?}", e),
         )
     })?;
-    Ok(Impg::from_paf_and_serializable(paf_file, serializable))
+    Impg::from_paf_and_serializable(paf_file, serializable)
 }
 
 fn perform_query(

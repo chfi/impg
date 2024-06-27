@@ -89,6 +89,12 @@ pub enum ParseErr {
     InvalidFormat(String),
 }
 
+impl From<std::io::Error> for ParseErr {
+    fn from(value: std::io::Error) -> Self {
+        ParseErr::IoError(value)
+    }
+}
+
 pub fn parse_paf<R: BufRead>(reader: R) -> Result<Vec<PafRecord>, ParseErr> {
     let mut bytes_read: u64 = 0;
     let mut records = Vec::new();

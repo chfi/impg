@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs::File;
 use std::io::{Read, Seek, SeekFrom};
+use std::path::{Path, PathBuf};
 
 /// Parse a CIGAR string into a vector of CigarOp
 // Note that the query_delta is negative for reverse strand alignments
@@ -142,22 +143,27 @@ pub struct SerializableInterval {
 pub struct Impg {
     pub trees: TreeMap,
     pub seq_index: SequenceIndex,
-    pub paf_file: String,
+    pub paf_file: PathBuf,
     pub paf_gzi_index: Option<bgzf::gzi::Index>,
 }
 
 impl Impg {
-    pub fn from_paf_records(records: &[PafRecord], paf_file: &str) -> Result<Self, ParseErr> {
-        let paf_gzi_index: Option<bgzf::gzi::Index> =
-            if [".gz", ".bgz"].iter().any(|e| paf_file.ends_with(e)) {
-                let paf_gzi_file = paf_file.to_owned() + ".gzi";
-                Some(
-                    bgzf::gzi::read(paf_gzi_file.clone())
-                        .expect(format!("Could not open {}", paf_gzi_file).as_str()),
-                )
-            } else {
-                None
-            };
+    pub fn from_paf_records(
+        records: &[PafRecord],
+        paf_path: impl AsRef<Path>,
+    ) -> Result<Self, ParseErr> {
+        let paf_path = paf_path.as_ref();
+
+        let paf_gzi_index = paf_path
+            .extension()
+            .and_then(|ext| {
+                let new_ext = ["gz", "bgz"]
+                    .iter()
+                    .find_map(|e| (&ext == e).then(|| format!("{e}.gzi")))?;
+                Some(paf_path.with_extension(new_ext))
+            })
+            .map(bgzf::gzi::read)
+            .transpose()?;
 
         let mut seq_index = SequenceIndex::new();
         for record in records {
@@ -219,7 +225,7 @@ impl Impg {
         Ok(Self {
             trees,
             seq_index,
-            paf_file: paf_file.to_string(),
+            paf_file: paf_path.to_path_buf(),
             paf_gzi_index,
         })
     }
@@ -243,18 +249,24 @@ impl Impg {
         (serializable_trees, self.seq_index.clone())
     }
 
-    pub fn from_paf_and_serializable(paf_file: &str, serializable: SerializableImpg) -> Self {
+    pub fn from_paf_and_serializable(
+        paf_path: impl AsRef<Path>,
+        serializable: SerializableImpg,
+    ) -> std::io::Result<Self> {
+        let paf_path = paf_path.as_ref();
         let (serializable_trees, seq_index) = serializable;
-        let paf_gzi_index: Option<bgzf::gzi::Index> =
-            if [".gz", ".bgz"].iter().any(|e| paf_file.ends_with(e)) {
-                let paf_gzi_file = paf_file.to_owned() + ".gzi";
-                Some(
-                    bgzf::gzi::read(paf_gzi_file.clone())
-                        .expect(format!("Could not open {}", paf_gzi_file).as_str()),
-                )
-            } else {
-                None
-            };
+
+        let paf_gzi_index = paf_path
+            .extension()
+            .and_then(|ext| {
+                let new_ext = ["gz", "bgz"]
+                    .iter()
+                    .find_map(|e| (&ext == e).then(|| format!("{e}.gzi")))?;
+                Some(paf_path.with_extension(new_ext))
+            })
+            .map(bgzf::gzi::read)
+            .transpose()?;
+
         let trees = serializable_trees
             .into_iter()
             .map(|(target_id, intervals)| {
@@ -272,12 +284,12 @@ impl Impg {
                 (target_id, tree)
             })
             .collect();
-        Self {
+        Ok(Self {
             trees,
             seq_index,
-            paf_file: paf_file.to_string(),
+            paf_file: paf_path.to_path_buf(),
             paf_gzi_index,
-        }
+        })
     }
 
     pub fn query(&self, target_id: u32, range_start: i32, range_end: i32) -> Vec<AdjustedInterval> {
