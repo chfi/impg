@@ -424,6 +424,72 @@ impl Impg {
     }
 }
 
+pub struct QueryResult {
+    pub query_interval: Interval<u32>,
+    pub target_interval: Interval<u32>,
+    pub cigar: Vec<CigarOp>,
+    pub query_metadata: QueryMetadata,
+}
+
+impl Impg {
+    pub fn query_new<'a>(
+        &'a self,
+        target_id: u32,
+        target_range: std::ops::Range<u64>,
+    ) -> Vec<QueryResult> {
+        let mut results = Vec::new();
+
+        if let Some(tree) = self.trees.get(&target_id) {
+            let range_start = target_range.start as i32;
+            let range_end = target_range.end as i32;
+
+            tree.query(range_start, range_end, |interval| {
+                let metadata = &interval.metadata;
+                let (
+                    adjusted_query_start,
+                    adjusted_query_end,
+                    adjusted_cigar,
+                    adjusted_target_start,
+                    adjusted_target_end,
+                ) = project_target_range_through_alignment(
+                    (range_start, range_end),
+                    (
+                        metadata.target_start,
+                        metadata.target_end,
+                        metadata.query_start,
+                        metadata.query_end,
+                        metadata.strand,
+                    ),
+                    &metadata.get_cigar_ops(&self.paf_file, self.paf_gzi_index.as_ref()),
+                );
+
+                let query_interval = Interval {
+                    first: adjusted_query_start,
+                    last: adjusted_query_end,
+                    metadata: metadata.query_id,
+                };
+
+                let target_interval = Interval {
+                    first: adjusted_target_start,
+                    last: adjusted_target_end,
+                    metadata: target_id,
+                };
+
+                let result = QueryResult {
+                    query_interval,
+                    target_interval,
+                    cigar: adjusted_cigar,
+                    query_metadata: metadata.clone(),
+                };
+
+                results.push(result);
+            });
+        }
+
+        results
+    }
+}
+
 fn project_target_range_through_alignment(
     target_range: (i32, i32),
     record: (i32, i32, i32, i32, Strand),
